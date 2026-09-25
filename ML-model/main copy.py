@@ -1,17 +1,15 @@
 import os
+import subprocess
 import re
-import jpype
-import jpype.imports
-from jpype.types import *
 
-# --- تنظیمات و مسیرها ---
 MODEL_FILE = "AdaBoostM1-DecisionStump-base-classifier.model"
 DATA_FILE = "data.arff"
 DEFAULT_JAR_FILE = "weka.jar"
 TEMPLATE_FILE = "training_template.arff"
-LOG_FILE = "final_predictions_log.txt"
-LOG_FILE_dashboard = "../MAS_system_node_server_on-main/back/backend/final_predictions_log.txt"
+LOG_FILE = "final_predictions_log.txt"  # File where results will be saved
+LOG_FILE_dashboard = "../MAS_system_node_server_on-main/back/backend/final_predictions_log.txt"  # File where results will be saved
 
+CLASSIFIER_CLASS = "weka.classifiers.meta.AdaBoostM1"
 
 def locate_project_file(filename):
     if os.path.exists(filename):
@@ -20,18 +18,6 @@ def locate_project_file(filename):
     if os.path.exists(parent_path):
         return parent_path
     return None
-
-
-def start_jvm_if_needed():
-    """راه‌اندازی ماشین مجازی جاوا با کلاس‌پث Weka"""
-    if not jpype.isJVMStarted():
-        jar_path = locate_project_file(DEFAULT_JAR_FILE)
-        if not jar_path:
-            raise FileNotFoundError(f"❌ Error: Cannot find '{DEFAULT_JAR_FILE}'.")
-        
-        # راه‌اندازی JVM همراه با فایل JAR
-        jpype.startJVM(classpath=[jar_path])
-
 
 def extract_selected_instance():
     template_path = locate_project_file(TEMPLATE_FILE)
@@ -83,106 +69,99 @@ def extract_selected_instance():
 
     parts = target_instance.split(",")
     if parts:
-        parts.pop()  # حذف کلاس فعلی/اصلی
+        original_class = parts.pop().strip()
         new_data_row = ",".join(parts) + ",?"
         return "".join(header_lines), new_data_row, choice
 
     return None, None, None
 
-
 def main():
-    print("=== Interactive Weka Predictor with 70% Filter (JPype Version) ===")
+    print("=== Interactive Weka Predictor with 70% Filter ===")
     
     header, test_row, instance_num = extract_selected_instance()
     if not header or not test_row:
         return
     
-    # ذخیره فایل داده موقت
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         f.write(header + "\n" + test_row + "\n")
         
-    print("\nProcessing instance through AdaBoost engine via JPype...")
-
+    print("\nProcessing instance through AdaBoost engine...")
+    
+    active_jar = locate_project_file(DEFAULT_JAR_FILE)
     active_model = locate_project_file(MODEL_FILE)
-    if not active_model:
-        print(f"❌ Error: Missing model file '{MODEL_FILE}'.")
+
+    if not active_jar or not active_model:
+        print("❌ Error: Missing execution dependency components.")
         return
 
+    command = ["java", "-cp", active_jar, CLASSIFIER_CLASS, "-l", active_model, "-T", DATA_FILE, "-p", "0"]
     try:
-        # ۱. راه‌اندازی ماشین مجازی جاوا (JVM)
-        start_jvm_if_needed()
-
-        # ۲. ایمپورت کلاس‌های جاوا از داخل Weka
-        from weka.core import SerializationHelper
-        from weka.core.converters import ConverterUtils
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        raw_output = result.stdout.strip()
         
-        # ۳. لود کردن مدل پیش‌بینی
-        classifier = SerializationHelper.read(active_model)
+        if raw_output:
+            lines = raw_output.split("\n")
+            weka_prediction = None
+            raw_confidence = 0.0
+            
+            for line in lines:
+                match = re.match(r"^\s*(\d+)\s+\S+\s+(\S+)\s+(\S+)", line)
+                if match:
+                    weka_prediction = match.group(2)
+                    raw_confidence = float(match.group(3))
+                    if ":" in weka_prediction:
+                        weka_prediction = weka_prediction.split(":")[-1]
+                    break
+            
+            if weka_prediction is not None:
+                confidence_percentage = raw_confidence * 100
+                print("\n--- 📊 Analysis Results ---")
+                print(f"Weka Raw Prediction: {weka_prediction}")
+                print(f"Model Confidence: {confidence_percentage:.1f}%")
+                
+                # --- APPLY CUSTOM 70% THRESHOLD LOGIC ---
+                if weka_prediction == "1" and confidence_percentage < 70.0:
+                    final_class = "0"
+                    explanation = "Maintenance 0 (No Maintenance Needed) - Reason: Confidence was lower than 70%"
+                elif weka_prediction == "1" and confidence_percentage >= 70.0:
+                    final_class = "1"
+                    explanation = "Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction"
+                else:
+                    # If Weka natively predicted 0, keep it as 0
+                    final_class = weka_prediction
+                    explanation = f"Maintenance {weka_prediction} - Reason: Native model decision"
 
-        # ۴. خواندن فایل ARFF داده پیش‌بینی
-        source = ConverterUtils.DataSource(DATA_FILE)
-        dataset = source.getDataSet()
-        
-        # تعیین آخرین ستون به عنوان کلاس هدف
-        if dataset.classIndex() == -1:
-            dataset.setClassIndex(dataset.numAttributes() - 1)
+                print(f"\n🔮 Final Filtered Decision: {explanation}")
+                print("--------------------------------")
+                
+                # --- SAVE THE RESULT TO A TXT FILE ---
+                log_entry = (
+                    f"Instance Number: {instance_num}\n"
+                    f"Instance Data: {test_row}\n"
+                    f"Weka Raw Prediction: {weka_prediction}\n"
+                    f"Model Confidence: {confidence_percentage:.1f}%\n"
+                    f"Final Adjusted Decision: {explanation}\n"
+                    f"{'='*40}\n"
+                )
+                
+                with open(LOG_FILE, "a", encoding="utf-8") as log_f:
+                    log_f.write(log_entry)
 
-        # گرفتن اولین نمونه (Instance)
-        test_instance = dataset.instance(0)
+                    
+                with open(LOG_FILE_dashboard, "a", encoding="utf-8") as log_f:
+                    log_f.write(log_entry)
 
-        # ۵. محاسبه پیش‌بینی و میزان اطمینان (Confidence)
-        prediction_index = int(classifier.classifyInstance(test_instance))
-        distribution = classifier.distributionForInstance(test_instance)
-        
-        # مقدار خام کلاس پیش‌بینی شده و درصد اطمینان مدل
-        weka_prediction = str(dataset.classAttribute().value(prediction_index))
-        raw_confidence = distribution[prediction_index]
-        confidence_percentage = raw_confidence * 100
 
-        print("\n--- 📊 Analysis Results ---")
-        print(f"Weka Raw Prediction: {weka_prediction}")
-        print(f"Model Confidence: {confidence_percentage:.1f}%")
-
-        # --- اعمال منطق آستانه ۷۰ درصد ---
-        if weka_prediction == "1" and confidence_percentage < 70.0:
-            explanation = "Maintenance 0 (No Maintenance Needed) - Reason: Confidence was lower than 70%"
-        elif weka_prediction == "1" and confidence_percentage >= 70.0:
-            explanation = "Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction"
+                
+                
+                print(f"🎉 Results successfully appended to file: {LOG_FILE}\n")
+            else:
+                print("\n❌ Weka returned headers but did not output a prediction string.")
         else:
-            explanation = f"Maintenance {weka_prediction} - Reason: Native model decision"
-
-        print(f"\n🔮 Final Filtered Decision: {explanation}")
-        print("--------------------------------")
-
-        # --- ثبت در فایل‌های لاگ ---
-        log_entry = (
-            f"Instance Number: {instance_num}\n"
-            f"Instance Data: {test_row}\n"
-            f"Weka Raw Prediction: {weka_prediction}\n"
-            f"Model Confidence: {confidence_percentage:.1f}%\n"
-            f"Final Adjusted Decision: {explanation}\n"
-            f"{'='*40}\n"
-        )
-
-        with open(LOG_FILE, "a", encoding="utf-8") as log_f:
-            log_f.write(log_entry)
-
-        # ذخیره در صورت وجود مسیر دشبورد
-        try:
-            with open(LOG_FILE_dashboard, "a", encoding="utf-8") as log_f:
-                log_f.write(log_entry)
-        except FileNotFoundError:
-            pass
-
-        print(f"🎉 Results successfully appended to file: {LOG_FILE}\n")
-
-    except Exception as e:
-        print(f"\n❌ Execution Error using JPype: {e}")
-    finally:
-        # متوقف کردن JVM در صورت نیاز (اختیاری)
-        if jpype.isJVMStarted():
-            jpype.shutdownJVM()
-
+            print("\n❌ Weka engine returned blank output.")
+            
+    except subprocess.CalledProcessError as e:
+        print(f"\n❌ Execution Error:\n{e.stderr}")
 
 if __name__ == "__main__":
     main()

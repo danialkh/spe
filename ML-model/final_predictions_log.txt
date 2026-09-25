@@ -130,3 +130,27 @@ Weka Raw Prediction: 1
 Model Confidence: 54.5%
 Final Adjusted Decision: Maintenance 0 (No Maintenance Needed) - Reason: Confidence was lower than 70%
 ========================================
+Instance Number: 4
+Instance Data: Bus,'\'(60000.4-65000.3]\'',Average,'\'(3.5-4]\'','\'(4.6-5.5]\'',Petrol,Automatic,'\'(2330-inf)\'','\'(75500-90399.8]\'',2023-08-24,2025-11-05,Second,'\'(-inf-7500]\'','\'(6.4-7.3]\'','\'(2.7-inf)\'','\'(17.999994-18.999981]\'',New,'Worn Out',New,?
+Weka Raw Prediction: 1
+Model Confidence: 100.0%
+Final Adjusted Decision: Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction
+========================================
+Instance Number: 4
+Instance Data: Bus,'\'(60000.4-65000.3]\'',Average,'\'(3.5-4]\'','\'(4.6-5.5]\'',Petrol,Automatic,'\'(2330-inf)\'','\'(75500-90399.8]\'',2023-08-24,2025-11-05,Second,'\'(-inf-7500]\'','\'(6.4-7.3]\'','\'(2.7-inf)\'','\'(17.999994-18.999981]\'',New,'Worn Out',New,?
+Weka Raw Prediction: 1
+Model Confidence: 100.0%
+Final Adjusted Decision: Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction
+========================================
+Instance Number: 4
+Instance Data: Bus,'\'(60000.4-65000.3]\'',Average,'\'(3.5-4]\'','\'(4.6-5.5]\'',Petrol,Automatic,'\'(2330-inf)\'','\'(75500-90399.8]\'',2023-08-24,2025-11-05,Second,'\'(-inf-7500]\'','\'(6.4-7.3]\'','\'(2.7-inf)\'','\'(17.999994-18.999981]\'',New,'Worn Out',New,?
+Weka Raw Prediction: 1
+Model Confidence: 100.0%
+Final Adjusted Decision: Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction
+========================================
+Instance Number: 2
+Instance Data: Van,'\'(60000.4-65000.3]\'',Average,'\'(0.5-1]\'','\'(6.4-7.3]\'',Electric,Automatic,'\'(2330-inf)\'','\'(120199.4-135099.2]\'',2023-09-21,2025-06-04,Second,'\'(22500-25000]\'','\'(6.4-7.3]\'','\'(-inf-0.3]\'','\'(13.000059-14.000046]\'',New,New,Weak,?
+Weka Raw Prediction: 1
+Model Confidence: 99.5%
+Final Adjusted Decision: Maintenance 1 (Needs Maintenance) - Reason: High confidence prediction
+========================================
