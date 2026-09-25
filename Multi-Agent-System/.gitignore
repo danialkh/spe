@@ -4,7 +4,6 @@ build/
 .idea/
 *.iml
 gradlew.bat
-gradle/
 lib/
 .DS_Store
 settings.gradle
