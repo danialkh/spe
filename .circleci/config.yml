@@ -15,10 +15,10 @@ jobs:
           pkg-manager: yarn
       - run:
           name: Run tests
-          command: echo \"No test specified in package.json\"
+          command: echo "No test specified in package.json"
   test-java:
     docker:
-      - image: cimg/openjdk:17.0
+      - image: cimg/openjdk:21.0
     working_directory: ~/project/Multi-Agent-System
     steps:
       - checkout:
