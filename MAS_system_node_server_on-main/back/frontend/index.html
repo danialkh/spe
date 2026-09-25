@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fleet Operational Center</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+:root{
+    --bg:#0A0C10;
+    --card-bg:#161B22;
+    --border:#30363D;
+    --text:#E6EDF3;
+    --muted:#8B949E;
+    --accent:#58A6FF;
+    --warning:#F0883E;
+    --danger:#F85149;
+    --success:#3FB950;
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Outfit',sans-serif;
+    padding:40px;
+}
+
+h1{
+    color:var(--accent);
+    border-left:5px solid var(--accent);
+    padding-left:18px;
+    margin-bottom:35px;
+    font-size:2rem;
+    display:flex;
+    align-items:center;
+    gap:14px;
+}
+
+#lastUpdate{
+    font-family:'JetBrains Mono',monospace;
+    font-size:.8rem;
+    color:var(--muted);
+    font-weight:400;
+}
+
+#fleet{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+    gap:22px;
+}
+
+/* ---------- Card ---------- */
+
+.card{
+    background:var(--card-bg);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:25px;
+    opacity:0;
+    transform:translateY(20px);
+    transition:box-shadow .5s ease, border-color .5s ease;
+}
+
+.card.in{
+    animation:cardIn .5s ease forwards;
+}
+
+@keyframes cardIn{
+    from{ opacity:0; transform:translateY(20px); }
+    to{ opacity:1; transform:translateY(0); }
+}
+
+.card.service{ border-color:var(--accent); }
+.card.ml-box { border-color:var(--warning); }
+
+.card.warn{
+    border-color:var(--warning);
+    box-shadow:0 0 16px -6px var(--warning);
+}
+
+.card.critical{
+    border-color:var(--danger);
+    box-shadow:0 0 18px -4px var(--danger);
+}
+
+h3{
+    font-size:1.3rem;
+    margin-bottom:18px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+}
+
+.stat{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:9px 0;
+    border-bottom:1px solid var(--border);
+}
+
+.stat:last-child{ border-bottom:none; }
+
+.stat span:first-child{
+    color:var(--muted);
+    font-size:.85rem;
+}
+
+.value{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:600;
+    color:var(--text);
+    transition:color .4s ease;
+}
+
+/* ML Card Text Box Styling */
+.ml-data-text {
+    font-size: 0.75rem;
+    color: var(--muted);
+    word-break: break-all;
+    background: #0d1117;
+    padding: 8px;
+    border-radius: 6px;
+    margin-top: 5px;
+    max-height: 60px;
+    overflow-y: auto;
+}
+
+/* Urgency badge */
+.badge{
+    font-family:'JetBrains Mono',monospace;
+    font-size:.78rem;
+    font-weight:600;
+    padding:3px 10px;
+    border-radius:20px;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+}
+
+.badge.low{ background:rgba(63,185,80,.15); color:var(--success); }
+.badge.medium{ background:rgba(240,136,62,.15); color:var(--warning); }
+.badge.high{
+    background:rgba(248,81,73,.15);
+    color:var(--danger);
+    animation:blink 1.1s ease-in-out infinite;
+}
+
+@keyframes blink{
+    0%,100%{ opacity:1; }
+    50%{ opacity:.45; }
+}
+
+.dot{
+    width:7px; height:7px; border-radius:50%;
+    background:currentColor;
+}
+
+/* Temperature glow */
+.temp-cool{ color:var(--accent); }
+.temp-warm{ color:var(--warning); }
+.temp-hot{
+    color:var(--danger);
+    text-shadow:0 0 8px rgba(248,81,73,.6);
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>Fleet Operational Center <span id="lastUpdate"></span></h1>
+
+<div id="fleet">Loading...</div>
+
+<script>
+
+const API_URL = "http://localhost:3000/api/fleet";
+const ML_API_URL = "http://localhost:3000/api/ml-prediction";
+const POLL_MS = 4000;
+
+const cardEls = new Map();
+
+function urgencyClass(u){
+    if(u === "HIGH") return "high";
+    if(u === "MEDIUM") return "medium";
+    return "low";
+}
+
+function tempClass(t){
+    const n = parseFloat(t);
+    if(n >= 70) return "temp-hot";
+    if(n >= 45) return "temp-warm";
+    return "temp-cool";
+}
+
+function animateNumber(el, to, suffix=""){
+    const from = parseFloat(el.dataset.raw || to) || 0;
+    to = parseFloat(to);
+    if(from === to){
+        el.textContent = Math.round(to).toLocaleString() + suffix;
+        el.dataset.raw = to;
+        return;
+    }
+    const duration = 600;
+    const start = performance.now();
+
+    function step(now){
+        const progress = Math.min((now - start) / duration, 1);
+        const current = from + (to - from) * progress;
+        el.textContent = Math.round(current).toLocaleString() + suffix;
+        if(progress < 1) requestAnimationFrame(step);
+        else el.dataset.raw = to;
+    }
+    requestAnimationFrame(step);
+}
+
+function buildVehicleCard(a){
+    const card = document.createElement("div");
+    card.className = "card in";
+    card.innerHTML = `
+        <h3>🚗 ${a.agent}</h3>
+        <div class="stat"><span>VIN</span><span class="value vin">${a.vin}</span></div>
+        <div class="stat"><span>Mileage</span><span class="value mileage">0 km</span></div>
+        <div class="stat"><span>Temp</span><span class="value temp">0.0°C</span></div>
+        <div class="stat"><span>Urgency</span><span class="badge urgency"><span class="dot"></span><span class="label"></span></span></div>
+    `;
+    return card;
+}
+
+function updateVehicleCard(card, a){
+    card.classList.toggle("critical", a.urgency === "HIGH");
+    card.classList.toggle("warn", a.urgency === "MEDIUM");
+
+    animateNumber(card.querySelector(".mileage"), a.mileage, " km");
+
+    const tempEl = card.querySelector(".temp");
+    tempEl.textContent = parseFloat(a.temp).toFixed(1) + "°C";
+    tempEl.className = "value temp " + tempClass(a.temp);
+
+    const badge = card.querySelector(".urgency");
+    badge.className = "badge urgency " + urgencyClass(a.urgency);
+    badge.querySelector(".label").textContent = a.urgency;
+}
+
+function buildCoordinatorCard(){
+    const card = document.createElement("div");
+    card.className = "card in";
+    card.innerHTML = `
+        <h3>📊 Fleet Coordinator</h3>
+        <div class="stat"><span>Registered Vehicles</span><span class="value totalRegistered">0</span></div>
+        <div class="stat"><span>Active Oil Alerts</span><span class="value oilAnomalies" style="color:var(--danger)">0</span></div>
+        <div class="stat"><span>Active Brake Alerts</span><span class="value brakeAnomalies" style="color:var(--danger)">0</span></div>
+        <div class="stat"><span>Fleet Size Limit</span><span class="value fleetSize">0</span></div>
+    `;
+    return card;
+}
+
+function updateCoordinatorCard(card, a){
+    animateNumber(card.querySelector(".totalRegistered"), a.totalRegistered);
+    animateNumber(card.querySelector(".oilAnomalies"), a.oilAnomalies);
+    animateNumber(card.querySelector(".brakeAnomalies"), a.brakeAnomalies);
+    animateNumber(card.querySelector(".fleetSize"), a.fleetSize);
+    card.classList.toggle("warn", (a.oilAnomalies > 0 || a.brakeAnomalies > 0));
+}
+
+function buildServiceCard(){
+    const card = document.createElement("div");
+    card.className = "card service in";
+    card.innerHTML = `
+        <h3>🛠 Service Hub</h3>
+        <div class="stat"><span>Records</span><span class="value records">0</span></div>
+        <div class="stat"><span>Oil Filter</span><span class="value oil">0</span></div>
+        <div class="stat"><span>Brake Pad</span><span class="value brake">0</span></div>
+        <div class="stat"><span>Load</span><span class="value load"></span></div>
+    `;
+    return card;
+}
+
+function updateServiceCard(card, a){
+    animateNumber(card.querySelector(".records"), a.records);
+    animateNumber(card.querySelector(".oil"), a.oil);
+    animateNumber(card.querySelector(".brake"), a.brake);
+
+    const overloaded = a.overloaded === "true";
+    const loadEl = card.querySelector(".load");
+    loadEl.textContent = overloaded ? "CRITICAL" : "OPTIMAL";
+    loadEl.style.color = overloaded ? "var(--danger)" : "var(--success)";
+    card.classList.toggle("critical", overloaded);
+}
+
+function buildMlCard(){
+    const card = document.createElement("div");
+    card.className = "card ml-box in";
+    card.innerHTML = `
+        <h3>🤖 ML Prediction Model</h3>
+        <div class="stat"><span>Instance</span><span class="value ml-instance">0</span></div>
+        <div class="stat"><span>Confidence</span><span class="value ml-conf">0%</span></div>
+        <div class="stat"><span>Decision</span><span class="value ml-decision" style="font-size:0.8rem;margin-left:15px">Pending</span></div>
+        <div style="margin-top: 10px;">
+            <span style="color:var(--muted); font-size:0.8rem;">Instance Data:</span>
+            <div class="ml-data-text value ml-raw-data">Loading...</div>
+        </div>
+    `;
+    return card;
+}
+
+function updateMlCard(card, data){
+    card.querySelector(".ml-instance").textContent = data.instanceNumber;
+    card.querySelector(".ml-conf").textContent = data.confidence;
+    
+    const decisionEl = card.querySelector(".ml-decision");
+    decisionEl.textContent = data.decision;
+    
+    if(data.decision.includes("No Maintenance")) {
+        decisionEl.style.color = "var(--success)";
+    } else {
+        decisionEl.style.color = "var(--danger)";
+    }
+
+    card.querySelector(".ml-raw-data").textContent = data.instanceData;
+}
+
+async function refreshFleet(){
+    try{
+        const [fleetRes, mlRes] = await Promise.all([
+            fetch(API_URL),
+            fetch(ML_API_URL).catch(() => null)
+        ]);
+
+        const agents = await fleetRes.json();
+        const container = document.getElementById("fleet");
+
+        if(container.textContent.trim() === "Loading...") container.innerHTML = "";
+
+        const seenKeys = new Set();
+
+        agents.forEach(a => {
+            let key, build, update;
+
+            if(a.agent === "Fleet Coordinator"){
+                key = "coordinator"; build = buildCoordinatorCard; update = updateCoordinatorCard;
+            } else if(a.agent === "Service Center"){
+                key = "service"; build = buildServiceCard; update = updateServiceCard;
+            } else {
+                key = a.vin || a.agent; build = () => buildVehicleCard(a); update = updateVehicleCard;
+            }
+
+            seenKeys.add(key);
+            let card = cardEls.get(key);
+            if(!card){
+                card = build();
+                cardEls.set(key, card);
+                container.appendChild(card);
+            }
+            update(card, a);
+        });
+
+        // Render ML Box card dynamically
+        if (mlRes && mlRes.ok) {
+            const mlData = await mlRes.json();
+            const mlKey = "ml_prediction_box";
+            seenKeys.add(mlKey);
+            
+            let mlCard = cardEls.get(mlKey);
+            if(!mlCard){
+                mlCard = buildMlCard();
+                cardEls.set(mlKey, mlCard);
+                container.appendChild(mlCard);
+            }
+            updateMlCard(mlCard, mlData);
+        }
+
+        for(const [key, card] of cardEls){
+            if(!seenKeys.has(key)){
+                card.remove();
+                cardEls.delete(key);
+            }
+        }
+
+        document.getElementById("lastUpdate").textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+
+    } catch(e){
+        console.log(e);
+    }
+}
+
+refreshFleet();
+setInterval(refreshFleet, POLL_MS);
+
+</script>
+
+</body>
+</html>

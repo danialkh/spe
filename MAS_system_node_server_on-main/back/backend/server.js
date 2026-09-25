@@ -1,0 +1,97 @@
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+app.use(cors());
+
+const AGENT_URLS = [
+    'http://192.168.178.34:3272/agent-mind/vehicle_agent1/latest',
+    'http://192.168.178.34:3272/agent-mind/vehicle_agent2/latest',
+    'http://192.168.178.34:3272/agent-mind/vehicle_agent3/latest',
+    'http://192.168.178.34:3272/agent-mind/service_center_agent/latest',
+    'http://192.168.178.34:3272/agent-mind/fleet_coordinator_agent/latest'
+];
+
+app.get('/api/fleet', async (req, res) => {
+    try {
+        const responses = await Promise.all(AGENT_URLS.map(url => axios.get(url).catch(() => ({ data: '' }))));
+        const parsedData = responses.map((r, i) => {
+            const html = r.data || '';
+            const extract = (pattern) => html.match(pattern)?.[1] || 'N/A';
+            
+            if (i === 4) { // Fleet Coordinator Logic
+                const oilAlerts = (html.match(/anomaly_detected\(vehicle_agent\d+,oil_pressure/g) || []).length;
+                const brakeAlerts = (html.match(/anomaly_detected\(vehicle_agent\d+,brake_wear/g) || []).length;
+                const fleetMatch = html.match(/fleet_size\((\d+)/);
+                const fleetSize = fleetMatch ? fleetMatch[1] : '8';
+                
+                return {
+                    agent: "Fleet Coordinator",
+                    oilAnomalies: oilAlerts,
+                    brakeAnomalies: brakeAlerts,
+                    totalRegistered: (html.match(/vehicle_registered/g) || []).length,
+                    fleetSize: fleetSize
+                };
+            }
+            
+            if (i === 3) { // Service Center Logic
+                const clean = (val) => val ? val.replace(/<[^>]*>/g, '').trim() : '0';
+
+                return {
+                    agent: "Service Center",
+                    records: clean(html.match(/record_counter\((.*?)\)/)?.[1]),
+                    oil: clean(html.match(/parts_inventory\(oil_filter,(.*?)\)/)?.[1]),
+                    brake: clean(html.match(/parts_inventory\(brake_pad,(.*?)\)/)?.[1]),
+                    overloaded: extract(/is_overloaded\((.*?)\)/)
+                };
+            }
+            
+            // Vehicle Logic
+            return {
+                agent: `Vehicle ${i + 1}`,
+                vin: extract(/vin\(<span style="color: rgb\(0, 0, 250\)">"(.*?)"<\/span>\)/),
+                mileage: extract(/mileage\((.*?)\)/).replace(/<i>|<\/i>/g, ''),
+                temp: extract(/current_temperature\((.*?)\)/).replace(/<i>|<\/i>/g, ''),
+                status: extract(/engine_status\((.*?)\)/),
+                urgency: extract(/urgency_level\((.*?)\)/).toUpperCase()
+            };
+        });
+        res.json(parsedData);
+    } catch (e) { res.status(500).send(e.message); }
+});
+app.get('/api/ml-prediction', (req, res) => {
+    try {
+        // Use absolute path inside the container where the volume is mounted
+        const logPath = 'final_predictions_log.txt';
+        
+        if (!fs.existsSync(logPath)) {
+            return res.status(404).json({ error: `Prediction log file not found at: ${logPath}` });
+        }
+
+        const fileContent = fs.readFileSync(logPath, 'utf8');
+        const blocks = fileContent.split('========================================').map(b => b.trim()).filter(Boolean);
+        
+        if (blocks.length === 0) {
+            return res.json({ status: "No prediction data available" });
+        }
+
+        const latestBlock = blocks[blocks.length - 1];
+        const getField = (regex) => latestBlock.match(regex)?.[1]?.trim() || 'N/A';
+
+        const predictionData = {
+            instanceNumber: getField(/Instance Number:\s*(.*)/),
+            instanceData: getField(/Instance Data:\s*(.*)/),
+            rawPrediction: getField(/Weka Raw Prediction:\s*(.*)/),
+            confidence: getField(/Model Confidence:\s*(.*)/),
+            decision: getField(/Final Adjusted Decision:\s*(.*)/)
+        };
+
+        res.json(predictionData);
+    } catch (e) {
+        res.status(500).send(e.message);
+    }
+});
+app.listen(3000, () => console.log('Proxy active on port 3000'));
