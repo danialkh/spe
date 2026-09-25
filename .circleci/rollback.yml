@@ -23,6 +23,7 @@ jobs:
           name: Perform rollback
           command: |
             # TODO: add rollback logic using ${TARGET_VERSION}
+            # e.g. ./deploy.sh ${TARGET_VERSION}
       - run:
           name: Update deployment status to failed
           command: circleci run release update deploy-rollback --status=FAILED
